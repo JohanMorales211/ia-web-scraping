@@ -1,0 +1,54 @@
+body {
+    padding-top: 50px;
+    background-color: #121212;
+    color: #e0e0e0;
+}
+
+.container {
+    max-width: 800px;
+}
+
+h1, h2, h5 {
+    color: #ffffff;
+}
+
+.input-group .form-control {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    border: 1px solid #333333;
+}
+
+.input-group .form-control::placeholder {
+    color: #888888;
+}
+
+.btn-primary {
+    background-color: #1f6feb;
+    border-color: #1f6feb;
+}
+
+.btn-primary:hover {
+    background-color: #1558b0;
+    border-color: #1558b0;
+}
+
+.form-check-label {
+    color: #e0e0e0;
+}
+
+.card {
+    background-color: #1e1e1e;
+    border: 1px solid #333333;
+}
+
+.card-title {
+    color: #ffffff;
+}
+
+.card-text {
+    color: #cccccc;
+}
+
+.summary-section {
+    margin-top: 30px;
+}
