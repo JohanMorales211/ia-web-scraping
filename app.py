@@ -2,7 +2,8 @@ import os
 import json
 import time
 import logging
-from flask import Flask, request, jsonify, render_template
+import base64
+from flask import Flask, request, jsonify, render_template, send_file
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service
@@ -10,6 +11,12 @@ from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.firefox.options import Options
 from dotenv import load_dotenv
 from cerebras.cloud.sdk import Cerebras
+from textblob import TextBlob
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+from folium.plugins import HeatMap
+from io import BytesIO
+from datetime import datetime
 
 # Configuración de logging
 logging.basicConfig(
@@ -17,7 +24,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-# Cargar variables del archivo .env
+# Carga variables del archivo .env
 load_dotenv()
 
 # Obtener las variables de entorno
@@ -32,14 +39,11 @@ if not CEREBRAS_API_KEY:
 app = Flask(__name__)
 
 def load_cookies(driver, filepath):
-    """
-    Carga las cookies almacenadas desde un archivo JSON en el navegador.
-    """
+    """Carga las cookies almacenadas desde un archivo JSON en el navegador."""
     try:
         with open(filepath, "r") as f:
             cookies = json.load(f)
             for cookie in cookies:
-                # Asegura de que el dominio de la cookie coincide con el dominio actual
                 if 'domain' in cookie:
                     cookie['domain'] = '.x.com'
                 driver.add_cookie(cookie)
@@ -48,13 +52,10 @@ def load_cookies(driver, filepath):
         logging.error(f"Error al cargar cookies desde {filepath}: {e}")
 
 def init_driver_with_cookies():
-    """
-    Inicializa el navegador Firefox con las cookies cargadas para mantener la sesión.
-    Siempre muestra la ventana del navegador (no headless).
-    """
+    """Inicializa el navegador Firefox con las cookies cargadas para mantener la sesión."""
     try:
         options = Options()
-        options.headless = False  # Siempre ejecutar con ventana visible
+        options.headless = False  # Siempre ejecuta con ventana visible
         logging.debug("Modo headless desactivado. Mostrando ventana del navegador.")
 
         driver = webdriver.Firefox(
@@ -71,14 +72,7 @@ def init_driver_with_cookies():
         raise
 
 def get_tweets(driver, topic, desired_count=10, max_scrolls=10):
-    """
-    Scrapea los últimos tweets relacionados con el tópico proporcionado hasta alcanzar desired_count.
-    :param driver: Instancia del navegador Selenium.
-    :param topic: Tópico para buscar tweets.
-    :param desired_count: Número de tweets deseados.
-    :param max_scrolls: Número máximo de desplazamientos para intentar.
-    :return: Lista de tweets.
-    """
+    """Scrapea los últimos tweets relacionados con el tópico proporcionado."""
     try:
         formatted_topic = topic.replace(' ', '+')
         search_url = f"https://x.com/search?q={formatted_topic}&src=typed_query"
@@ -91,7 +85,6 @@ def get_tweets(driver, topic, desired_count=10, max_scrolls=10):
         while len(tweets) < desired_count and scrolls < max_scrolls:
             time.sleep(3)  # Espera a que la página cargue los tweets
             tweet_elements = driver.find_elements(By.CSS_SELECTOR, 'article div[lang]')
-            current_count = len(tweet_elements)
             tweets = [element.text for element in tweet_elements]
             logging.debug(f"Tweets encontrados tras el scroll {scrolls + 1}: {len(tweets)}")
 
@@ -104,7 +97,7 @@ def get_tweets(driver, topic, desired_count=10, max_scrolls=10):
 
         # Retorna solo los primeros desired_count tweets
         tweets = tweets[:desired_count]
-        logging.debug(f"Total de tweets obtenidos para el tema '{topic}': {len(tweets)}")
+        logging.debug(f"Total de tweets obtenidos para el tema '{topic}': '{len(tweets)}'")
         return tweets
     except Exception as e:
         logging.error(f"Error al obtener tweets: {e}")
@@ -115,14 +108,12 @@ def analyze_tweets_summary_cerebras(tweets):
         logging.warning("No se proporcionaron tweets para analizar.")
         return "No se encontraron tweets para resumir."
 
-    # Unir todos los tweets en un solo texto
+    # Une todos los tweets en un solo texto
     combined_text = "\n".join(tweets)
     logging.debug("Textos de tweets combinados para el resumen.")
 
-    # Inicializar el cliente de Cerebras
-    client = Cerebras(
-        api_key=CEREBRAS_API_KEY
-    )
+    # Inicializa el cliente de Cerebras
+    client = Cerebras(api_key=CEREBRAS_API_KEY)
 
     try:
         # Crea la solicitud de completions con un prompt orientado a generar un resumen cohesivo
@@ -143,13 +134,10 @@ def analyze_tweets_summary_cerebras(tweets):
             temperature=0.2,
             top_p=1
         )
-
+        
         # Registra la respuesta para inspección
         logging.debug(f"Respuesta de Cerebras: {response}")
-
-        # Registra el tipo de respuesta
-        logging.debug(f"Tipo de respuesta de Cerebras: {type(response)}")
-
+        
         # Maneja la respuesta dependiendo de su estructura
         if isinstance(response, tuple):
             logging.debug("La respuesta es una tupla.")
@@ -158,7 +146,6 @@ def analyze_tweets_summary_cerebras(tweets):
         if hasattr(response, 'choices') and len(response.choices) > 0:
             # Accede a la primera elección
             choice = response.choices[0]
-
             # Accede al contenido del mensaje
             if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
                 summary = choice.message.content
@@ -175,20 +162,41 @@ def analyze_tweets_summary_cerebras(tweets):
         logging.error(f"Error al generar el resumen con Cerebras: {e}")
         return "Error al generar el resumen."
 
+def analyze_sentiment(tweets):
+    """Analiza el sentimiento de los tweets y devuelve la distribución."""
+    sentiments = []
+    for tweet in tweets:
+        analysis = TextBlob(tweet)
+        sentiment = analysis.sentiment.polarity
+        if sentiment > 0:
+            sentiments.append('positivo')
+        elif sentiment < 0:
+            sentiments.append('negativo')
+        else:
+            sentiments.append('neutral')
+    return sentiments
+
+def generate_wordcloud(tweets):
+    """Genera una nube de palabras a partir de los tweets."""
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(' '.join(tweets))
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    img = BytesIO()
+    plt.savefig(img, format='png')
+    plt.close()
+    img.seek(0)
+    return base64.b64encode(img.getvalue()).decode('utf-8')
+
 @app.route("/", methods=["GET"])
 def index():
-    """
-    Ruta principal que renderiza el template index.html.
-    """
+    """Ruta principal que renderiza el template index.html."""
     logging.debug("Cargando página principal.")
     return render_template("index.html")
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    """
-    Ruta que recibe un tópico, obtiene tweets relacionados y genera un resumen.
-    Siempre muestra la ventana del navegador durante el scraping.
-    """
+    """Ruta que recibe un tópico, obtiene tweets relacionados y genera un resumen."""
     try:
         data = request.get_json()
         if not data:
@@ -212,8 +220,24 @@ def analyze():
         summary = analyze_tweets_summary_cerebras(tweets)
         logging.debug(f"Resumen generado para el tópico '{topic}': {summary}")
 
-        # Devuelve tanto los tweets como el resumen
-        return jsonify({"tweets": tweets, "summary": summary})
+        # Analiza el sentimiento de los tweets
+        sentiments = analyze_sentiment(tweets)
+        sentiment_distribution = {
+            'positivo': sentiments.count('positivo'),
+            'negativo': sentiments.count('negativo'),
+            'neutral': sentiments.count('neutral')
+        }
+
+        # Genera una nube de palabras
+        wordcloud_img = generate_wordcloud(tweets)
+
+        # Devuelve los tweets, resumen, distribuciones y las imágenes en base64
+        return jsonify({
+            "tweets": tweets,
+            "summary": summary,
+            "sentiment_distribution": sentiment_distribution,
+            "wordcloud_img": wordcloud_img,
+        })
 
     except Exception as e:
         logging.error(f"Error en la ruta /analyze: {e}")

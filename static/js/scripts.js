@@ -91,4 +91,62 @@ function renderResults(data) {
 
         output.appendChild(summarySection);
     }
+
+    // Gráfica de Sentimiento
+    if (data.sentiment_distribution) {
+        const sentimentSection = document.createElement("div");
+        sentimentSection.classList.add("mb-4");
+
+        const sentimentHeader = document.createElement("h2");
+        sentimentHeader.innerText = "Distribución de Sentimiento:";
+        sentimentSection.appendChild(sentimentHeader);
+
+        const sentimentCanvas = document.createElement("canvas");
+        sentimentCanvas.id = "sentiment-chart";
+        sentimentCanvas.width = 400;
+        sentimentCanvas.height = 200;
+        sentimentSection.appendChild(sentimentCanvas);
+
+        output.appendChild(sentimentSection);
+
+        new Chart(sentimentCanvas, {
+            type: 'bar',
+            data: {
+                labels: Object.keys(data.sentiment_distribution),
+                datasets: [{
+                    data: Object.values(data.sentiment_distribution),
+                    backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Distribución de Sentimiento'
+                    }
+                }
+            }
+        });
+    }
+    
+    // Nube de Palabras
+    if (data.wordcloud_img) {
+        const wordcloudSection = document.createElement("div");
+        wordcloudSection.classList.add("mb-4");
+
+        const wordcloudHeader = document.createElement("h2");
+        wordcloudHeader.innerText = "Nube de Palabras:";
+        wordcloudSection.appendChild(wordcloudHeader);
+
+        const wordcloudImg = document.createElement("img");
+        wordcloudImg.src = `data:image/png;base64,${data.wordcloud_img}`;
+        wordcloudImg.alt = "Nube de Palabras";
+        wordcloudSection.appendChild(wordcloudImg);
+
+        output.appendChild(wordcloudSection);
+    }
 }
