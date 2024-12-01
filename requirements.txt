@@ -6,3 +6,4 @@ cerebras_cloud_sdk==1.11.0
 textblob
 matplotlib
 wordcloud
+folium

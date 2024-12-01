@@ -9,6 +9,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service
 from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.firefox.options import Options
+
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+
 from dotenv import load_dotenv
 from cerebras.cloud.sdk import Cerebras
 from textblob import TextBlob
@@ -83,9 +88,19 @@ def get_tweets(driver, topic, desired_count=10, max_scrolls=10):
         scrolls = 0
 
         while len(tweets) < desired_count and scrolls < max_scrolls:
-            time.sleep(3)  # Espera a que la página cargue los tweets
+            # Esperar a que los tweets estén presentes
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 'article div[lang]'))
+                )
+            except TimeoutException:
+                logging.warning("Tiempo de espera agotado esperando los tweets.")
+                break
+
+            # Obtener los elementos de los tweets
             tweet_elements = driver.find_elements(By.CSS_SELECTOR, 'article div[lang]')
-            tweets = [element.text for element in tweet_elements]
+            new_tweets = [element.text for element in tweet_elements if element.text not in tweets]
+            tweets.extend(new_tweets)
             logging.debug(f"Tweets encontrados tras el scroll {scrolls + 1}: {len(tweets)}")
 
             if len(tweets) >= desired_count:
@@ -94,6 +109,7 @@ def get_tweets(driver, topic, desired_count=10, max_scrolls=10):
             # Desplaza hacia abajo para cargar más tweets
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             scrolls += 1
+            time.sleep(2)  # Esperar un poco después de cada scroll
 
         # Retorna solo los primeros desired_count tweets
         tweets = tweets[:desired_count]
